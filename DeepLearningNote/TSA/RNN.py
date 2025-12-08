@@ -7,6 +7,16 @@ y_t = W_ho*h_t + b_ho
 
 __init__：搭骨架、创建层 & 参数
 forward：规定数据怎么从输入流到输出（前向计算过程）
+
+输入：
+B（batch size）：一次送进网络的样本个数
+
+T（time steps / length）：一个序列里有多少个时间点
+
+C（channels / features）：每个时间点有多少个特征
+
+序列 → 单个值（比如预测下一步、分类整条序列）：最后的预测head（注意只作用最后一维），最后输出 size 常见是：回归：(B, 1)，分类：(B, num_classes)
+序列 → 序列（每个时间点都要预测一个值）
 '''
 import torch
 import torch.nn as nn
@@ -17,6 +27,18 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split, TimeSeriesSplit
 from copy import deepcopy
 import os
+
+# lin = nn.Linear(4, 8)   # in_features=4, out_features=8
+# x   = torch.randn(32, 4)  # (B, C)
+
+# y = lin(x)              # (32, 8)
+
+# lin = nn.Linear(4, 8)
+# x   = torch.randn(32, 10, 4)  # (B, T, C)
+
+# y = lin(x)
+# print(y.shape)  # (32, 10, 8)
+
 
 def set_seed(seed=0):
     random.seed(seed)

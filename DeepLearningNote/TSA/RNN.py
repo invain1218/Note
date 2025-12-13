@@ -66,12 +66,13 @@ class MyRNNCell(nn.Module):
         return h_t
 
 class MyRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size, output_size, pred_len):
         super().__init__()
         self.hidden_size = hidden_size
         self.output_size = output_size
+        self.pred_len = pred_len
         self.cell = MyRNNCell(input_size, hidden_size)
-        self.head = nn.Linear(hidden_size, output_size*input_size)  # [B, horizon]
+        self.head = nn.Linear(hidden_size, output_size*pred_len)  # [B, horizon]
         
     def forward(self, x, h0=None):
         B, T, C = x.size() # [B, T, C]
@@ -86,16 +87,17 @@ class MyRNN(nn.Module):
             outputs.append(h_t.unsqueeze(1))
         outputs = torch.cat(outputs, dim=1) # outputs是记录每个时间步的隐藏状态 
         y_hat = self.head(h_t) # 只用最后一个时间步的隐藏状态预测输出 [B, horizon*C]
-        y_hat = y_hat.view(B, self.output_size, C)  # [B, horizon, C]
+        y_hat = y_hat.view(B, self.pred_len, C)  # [B, horizon, C]
         return outputs,y_hat
 
 class RNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size, output_size, pred_len):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
+        self.pred_len = pred_len
         self.rnn = nn.RNN(input_size, hidden_size, batch_first=True)
-        self.head = nn.Linear(hidden_size, output_size*input_size)
+        self.head = nn.Linear(hidden_size, output_size*pred_len)
         
     def forward(self, x, h0=None):
         if h0 is None:
@@ -104,7 +106,7 @@ class RNN(nn.Module):
             rnn_out, h_n = self.rnn(x, h0)
         y_hat = self.head(h_n.squeeze(0)) 
         B = y_hat.size(0)
-        y_hat = y_hat.view(B, self.output_size, self.input_size)  # [B, horizon, C]
+        y_hat = y_hat.view(B, self.pred_len, self.output_size)  # [B, horizon, C]
         return rnn_out, y_hat
 
 def copy_rnn_weights(official_rnn: RNN, custom_rnn: MyRNN):
@@ -274,9 +276,9 @@ def train_model(model, train_loader,val_loader, save_directory, num_epochs=50, l
 
 # 测试代码 =========================
 # set_seed(123456)
-feature_size = 1
+feature_size = 2
 hidden_size = 8
-series = generate_series(n_points=300, feature_size=feature_size)  # [300, 1]
+series = generate_series(n_points=300, feature_size=feature_size)  # [300, 2]
 window_size = 20
 horizon = 3
 X, y = make_dataset(series, window_size, horizon) 
@@ -309,3 +311,33 @@ m_myrnn, last_tr_loss_myrnn, last_val_loss_myrnn = train_model(myrnn, train_load
 # 比较 和官方RNN结果相似，误差在0.01内
 print(f"Train: {last_tr_loss_rnn:.4f}, Val: {last_val_loss_rnn:.4f}, Diff: {abs(last_tr_loss_rnn-last_val_loss_rnn):.4f}")
 print(f"Train: {last_tr_loss_myrnn:.4f}, Val: {last_val_loss_myrnn:.4f}, Diff: {abs(last_tr_loss_myrnn-last_val_loss_myrnn):.4f}")
+
+
+model.eval()
+all_preds = []
+all_trues = []
+
+test_mloss = torch.zeros(1, device=device)
+print(('\n' + '%-10s' * 1) % ('Test loss'))
+pbar = tqdm(enumerate(test_lp), total=len(test_data))
+with torch.no_grad():
+
+    for i, (batch_x, batch_y) in pbar:
+
+        batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+        outputs = model(batch_x)
+
+        loss = criterion(outputs, batch_y)
+
+        test_mloss = (test_mloss * i + loss.detach()) / (i + 1)
+
+        pbar.set_description(('%-10.4g' * 1) %
+                                (test_mloss))
+        all_preds.append(outputs.detach().cpu().numpy())
+        all_trues.append(batch_y.detach().cpu().numpy())
+
+test_mloss # 所有 batch 的平均 MSE
+test_mloss**0.5 # RMSE
+
+
+
